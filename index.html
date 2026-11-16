@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>小口現金</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; font-size: 16px; color: #1f1f1d; background: #f5f4ef; }
+  #app { max-width: 480px; margin: 0 auto; background: #fff; min-height: 100vh; padding-bottom: 76px; }
+  header { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid #e3e1d8; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  header select { width: 140px; font-weight: 600; }
+  .bal-l { font-size: 11px; color: #6b6a63; text-align: right; }
+  .bal-v { font-size: 20px; font-weight: 600; text-align: right; }
+  main { padding: 10px 14px; }
+  label.l { display: block; font-size: 12px; color: #6b6a63; margin: 10px 0 3px; }
+  input, select, button { font: inherit; }
+  input[type=text], input[type=number], input[type=date], input[type=password], select { width: 100%; height: 42px; padding: 0 10px; border: 1px solid #cfcdc3; border-radius: 8px; background: #fff; }
+  button { height: 42px; padding: 0 14px; border: 1px solid #cfcdc3; border-radius: 8px; background: #fff; }
+  button.p { background: #1f1f1d; color: #fff; border-color: #1f1f1d; font-weight: 600; }
+  button.d { color: #b3261e; }
+  button.w { width: 100%; }
+  button.s { height: 32px; font-size: 13px; padding: 0 10px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .card { border: 1px solid #e3e1d8; border-radius: 8px; padding: 4px 10px 10px; margin-bottom: 8px; }
+  .muted { color: #6b6a63; font-size: 12px; }
+  .err { color: #b3261e; font-size: 13px; min-height: 20px; margin: 6px 0; }
+  .ok { color: #1d6b33; background: #e8f4ec; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-bottom: 8px; }
+  .lock { color: #8a5a00; background: #fdf3dc; padding: 6px 14px; font-size: 12px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-bottom: 4px; }
+  .seg button { border-radius: 0; }
+  .seg button:first-child { border-radius: 8px 0 0 8px; }
+  .seg button:last-child { border-radius: 0 8px 8px 0; }
+  .seg button.on { background: #1f1f1d; color: #fff; }
+  nav { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top: 1px solid #e3e1d8; display: flex; max-width: 480px; margin: 0 auto; }
+  nav button { flex: 1; border: none; border-radius: 0; height: 58px; font-size: 12px; color: #6b6a63; background: #fff; }
+  nav button.on { color: #1f1f1d; font-weight: 600; }
+  .item { display: flex; gap: 10px; padding: 12px 0; border-bottom: 1px solid #e3e1d8; }
+  .thumb { width: 44px; height: 44px; flex: none; border-radius: 8px; background: #f1efe8; border: none; padding: 0; font-size: 20px; color: #6b6a63; }
+  .grow { flex: 1; min-width: 0; }
+  .between { display: flex; justify-content: space-between; gap: 8px; }
+  .in { color: #1d6b33; }
+  .center { text-align: center; padding: 24px 0; color: #6b6a63; }
+  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 6px; }
+  img.photo { width: 100%; border-radius: 8px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <select id="mon" onchange="onMonth()"></select>
+    <div><div class="bal-l" id="blab">現在の残高</div><div class="bal-v" id="bal">-</div></div>
+  </header>
+  <div id="lock" class="lock" style="display:none">締め済みの月です。見るだけで、修正はできません</div>
+  <main id="main"></main>
+  <nav>
+    <button id="n-rec" onclick="goTab('rec')">記録</button>
+    <button id="n-hist" onclick="goTab('hist')">履歴</button>
+    <button id="n-chk" onclick="goTab('chk')">月次チェック</button>
+  </nav>
+</div>
+<script>
+var PASS = '', INIT = null, YM = '', TAB = 'rec', STAGE = 'form', FLASH = '', DATA = null, EDIT = null, CONFIRM_CANCEL = null, OPENPHOTO = {};
+var ME = lsGet('ocher_me') || '';
+var FILT = { me: false, who: '', q: '', rb: true };
+var draft = null, chk = null;
+
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return ''; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function yen(n) { return '¥' + Math.round(Number(n) || 0).toLocaleString(); }
+var API_URL = 'https://script.google.com/macros/s/AKfycbzY4ZbXhxc5T097sOX9u3O8eDr-Z3ntX96Stsl4NYynko5eUXDRa83lkcPGLWMRSbH4Hg/exec'; // 別の場所に置くときは、Apps ScriptのウェブアプリURL(/exec)をここに入れる
+function call(fn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    return new Promise(function (res, rej) {
+      var r = google.script.run.withSuccessHandler(res).withFailureHandler(function (e) { rej(new Error((e && e.message) || e)); });
+      r[fn].apply(r, args);
+    });
+  }
+  return fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, args: args }) })
+    .then(function (r) { return r.json(); })
+    .then(function (j) { if (!j.ok) throw new Error(j.error); return j.data; })
+    .catch(function (e) { throw new Error(e && e.message === 'Failed to fetch' ? '通信できません。電波を確認してください' : (e && e.message) || e); });
+}
+function opts(list, val) { return list.map(function (o) { return '<option' + (o === val ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join(''); }
+
+function newDraft() {
+  draft = { kind: 'out', date: INIT.today, who: ME || '', shop: '', total: '', lines: [{ what: INIT.whats[0], other: '', tax: '8%', amt: '' }], photo: null, inWhat: INIT.ins[0] || '', inAmt: '' };
+}
+
+/* ---------- 起動 ---------- */
+function start() {
+  PASS = lsGet('ocher_pass') || '';
+  if (!PASS) return login('');
+  call('api_init', PASS).then(function (r) { INIT = r; boot(); }).catch(function (e) { login(e.message); });
+}
+function login(msg) {
+  document.getElementById('main').innerHTML = '<label class="l">パスコードを入力してください</label><input type="password" id="pw" inputmode="numeric"><div class="err">' + esc(msg) + '</div><button class="p w" onclick="doLogin()">開く</button>';
+}
+function doLogin() { PASS = document.getElementById('pw').value.trim(); lsSet('ocher_pass', PASS); start(); }
+function boot() {
+  YM = INIT.months.indexOf(INIT.current) >= 0 ? INIT.current : INIT.months[0];
+  document.getElementById('mon').innerHTML = INIT.months.map(function (m) { return '<option value="' + m + '"' + (m === YM ? ' selected' : '') + '>20' + m.slice(0, 2) + '年' + Number(m.slice(2)) + '月</option>'; }).join('');
+  newDraft();
+  loadMonth().then(function () { goTab('rec'); });
+}
+function loadMonth() {
+  return call('api_list', PASS, YM).then(function (r) { DATA = r; paintHeader(); }).catch(showErr);
+}
+function paintHeader() {
+  document.getElementById('bal').textContent = yen(DATA.balance);
+  document.getElementById('blab').textContent = DATA.closed ? '月末残高' : '現在の残高';
+  document.getElementById('lock').style.display = DATA.closed ? 'block' : 'none';
+}
+function onMonth() { YM = document.getElementById('mon').value; EDIT = null; FLASH = ''; loadMonth().then(function () { goTab(TAB === 'rec' ? 'hist' : TAB); }); }
+function showErr(e) { FLASH = ''; var m = document.getElementById('main'); var d = document.createElement('div'); d.className = 'err'; d.textContent = e.message; m.insertBefore(d, m.firstChild); }
+
+function goTab(t) {
+  TAB = t; STAGE = 'form'; EDIT = null; CONFIRM_CANCEL = null;
+  ['rec', 'hist', 'chk'].forEach(function (k) { document.getElementById('n-' + k).className = k === t ? 'on' : ''; });
+  if (t === 'chk') { call('api_checkGet', PASS, YM).then(function (r) { chk = r; render(); }).catch(showErr); return; }
+  render();
+}
+function render() {
+  var f = FLASH ? '<div class="ok">' + esc(FLASH) + '</div>' : '';
+  var h = TAB === 'rec' ? (STAGE === 'form' ? formHtml() : confirmHtml()) : TAB === 'hist' ? histHtml() : chkHtml();
+  document.getElementById('main').innerHTML = f + h;
+  if (TAB === 'rec' && STAGE === 'form') updSum();
+}
+
+/* ---------- 記録 ---------- */
+function lab(t) { return '<label class="l">' + t + '</label>'; }
+function formHtml() {
+  var d = draft, h = '<div class="seg"><button class="' + (d.kind === 'out' ? 'on' : '') + '" onclick="setKind(\'out\')">支出</button><button class="' + (d.kind === 'in' ? 'on' : '') + '" onclick="setKind(\'in\')">入金</button></div>';
+  h += lab('日付') + '<input type="date" value="' + d.date + '" oninput="draft.date=this.value">';
+  h += lab('記入者') + '<select onchange="draft.who=this.value;ME=this.value;lsSet(\'ocher_me\',ME)"><option value="">選んでください</option>' + opts(INIT.who, d.who) + '</select>';
+  if (d.kind === 'in') {
+    h += lab('内容') + '<select onchange="draft.inWhat=this.value">' + opts(INIT.ins, d.inWhat) + '</select>';
+    h += lab('金額(円)') + '<input type="number" inputmode="numeric" value="' + esc(d.inAmt) + '" oninput="draft.inAmt=this.value">';
+  } else {
+    h += lab('支払先') + '<input type="text" list="shops" value="' + esc(d.shop) + '" placeholder="ダイエー" oninput="draft.shop=this.value"><datalist id="shops">' + INIT.shops.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('') + '</datalist>';
+    h += lab('レシートの合計金額(円)') + '<input type="number" inputmode="numeric" value="' + esc(d.total) + '" oninput="draft.total=this.value;updSum()">';
+    h += '<div class="muted" style="margin:12px 0 4px">明細(税区分ごとに分ける)</div>';
+    d.lines.forEach(function (l, i) { h += lineHtml(l, i, 'draft', d.lines.length > 1, true); });
+    h += '<button class="w" onclick="addLine()">+ 明細を追加</button>';
+    h += '<div style="margin-top:10px;font-size:14px">明細の合計 <b id="sum"></b></div>';
+  }
+  h += lab('領収書の写真') + '<input type="file" accept="image/*" onchange="pickPhoto(this)"><div class="muted" id="pn">' + (d.photo ? '写真を選びました' : '') + '</div>';
+  h += '<div class="err" id="err"></div><button class="p w" onclick="toConfirm()">確認へ</button>';
+  return h;
+}
+function lineHtml(l, i, root, canRemove, withTax) {
+  var whats = INIT.whats.concat(['その他(自由入力)']);
+  var isOther = l.what === 'その他(自由入力)' || (INIT.whats.indexOf(l.what) < 0 && l.what);
+  var cur = isOther ? 'その他(自由入力)' : l.what;
+  var h = '<div class="card"><div class="between" style="align-items:center"><span class="muted">明細 ' + (i + 1) + '</span>' + (canRemove ? '<button class="s" onclick="rmLine(' + i + ')" aria-label="削除">×</button>' : '') + '</div>';
+  h += '<select onchange="setWhat(' + i + ',this.value)">' + opts(whats, cur) + '</select>';
+  if (isOther) h += '<input type="text" style="margin-top:6px" placeholder="支払内容" value="' + esc(l.other || (l.what === 'その他(自由入力)' ? '' : l.what)) + '" oninput="' + root + '.lines[' + i + '].other=this.value;' + root + '.lines[' + i + '].what=this.value||\'その他(自由入力)\'">';
+  h += '<div class="row2" style="margin-top:6px">' + (withTax ? '<select onchange="' + root + '.lines[' + i + '].tax=this.value">' + opts(INIT.taxes, l.tax) + '</select>' : '<div></div>') + '<input type="number" inputmode="numeric" placeholder="金額" value="' + esc(l.amt) + '" oninput="' + root + '.lines[' + i + '].amt=this.value;updSum()"></div></div>';
+  return h;
+}
+function curRoot() { return EDIT ? EDIT : draft; }
+function setWhat(i, v) { var o = curRoot(); o.lines[i].what = v; if (v !== 'その他(自由入力)') o.lines[i].other = ''; render(); }
+function setKind(k) { draft.kind = k; render(); }
+function addLine() { draft.lines.push({ what: INIT.whats[2] || INIT.whats[0], other: '', tax: '10%', amt: '' }); render(); }
+function rmLine(i) { curRoot().lines.splice(i, 1); render(); }
+function sumOf(lines) { return lines.reduce(function (s, l) { return s + (Math.round(Number(l.amt)) || 0); }, 0); }
+function updSum() { var s = document.getElementById('sum'); if (s) s.textContent = yen(sumOf(draft.lines)); var e = document.getElementById('err'); if (e) e.textContent = ''; }
+function pickPhoto(inp) {
+  var f = inp.files && inp.files[0]; if (!f) { draft.photo = null; return; }
+  var r = new FileReader();
+  r.onload = function () {
+    var img = new Image();
+    img.onload = function () {
+      var max = 1400, sc = Math.min(1, max / Math.max(img.width, img.height));
+      var c = document.createElement('canvas'); c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      draft.photo = { b64: c.toDataURL('image/jpeg', 0.8).split(',')[1] };
+      var pn = document.getElementById('pn'); if (pn) pn.textContent = '写真を選びました';
+    };
+    img.src = r.result;
+  };
+  r.readAsDataURL(f);
+}
+function setErr(m) { var e = document.getElementById('err'); if (e) e.textContent = m; }
+function toConfirm() {
+  var d = draft;
+  if (!d.who) return setErr('記入者を選んでください');
+  if (d.kind === 'in') { if (!(Math.round(Number(d.inAmt)) > 0)) return setErr('金額を入力してください'); }
+  else {
+    if (!d.shop.trim()) return setErr('支払先を入力してください');
+    var s = sumOf(d.lines), t = Math.round(Number(d.total)) || 0;
+    if (!s) return setErr('明細の金額を入力してください');
+    for (var i = 0; i < d.lines.length; i++) if (!d.lines[i].what || d.lines[i].what === 'その他(自由入力)') return setErr('明細' + (i + 1) + 'の支払内容を入力してください');
+    if (t !== s) return setErr('レシート合計(' + yen(t) + ')と明細の合計(' + yen(s) + ')が合いません');
+  }
+  STAGE = 'confirm'; render();
+}
+function confirmHtml() {
+  var d = draft, total = d.kind === 'in' ? Math.round(Number(d.inAmt)) : sumOf(d.lines);
+  var h = '<div style="font-weight:600;margin:6px 0">この内容で記録します</div><div class="muted">' + esc(d.date) + ' / ' + esc(d.who) + (d.kind === 'out' ? ' / ' + esc(d.shop) : '') + '</div>';
+  if (d.kind === 'in') h += '<div class="between" style="padding:8px 0;border-bottom:1px solid #e3e1d8"><span>' + esc(d.inWhat) + '</span><span>' + yen(total) + '</span></div>';
+  else d.lines.forEach(function (l) { h += '<div class="between" style="padding:8px 0;border-bottom:1px solid #e3e1d8"><span>' + esc(l.what) + ' <span class="muted">' + esc(l.tax) + '</span></span><span>' + yen(l.amt) + '</span></div>'; });
+  var after = d.kind === 'in' ? DATA.balance + total : DATA.balance - total;
+  h += '<div class="between" style="padding:8px 0;font-weight:600"><span>合計</span><span>' + yen(total) + '</span></div><div class="muted" style="margin-bottom:12px">記録後の残高 ' + yen(after) + '(' + (draft.date.slice(2, 4) + draft.date.slice(5, 7) === YM ? '今見ている月' : '別の月に記録されます') + ')</div>';
+  h += (d.photo ? '<div class="muted">写真あり</div>' : '') + '<div class="err" id="err"></div><div class="row2"><button onclick="STAGE=\'form\';render()">戻る</button><button class="p" id="go" onclick="commit()">記録する</button></div>';
+  return h;
+}
+function commit() {
+  var d = draft, b = document.getElementById('go'); b.disabled = true; b.textContent = '送信中…';
+  var p = { kind: d.kind, date: d.date, who: d.who, shop: d.shop, total: d.total, photo: d.photo,
+    lines: d.kind === 'in' ? [{ what: d.inWhat, amt: d.inAmt }] : d.lines.map(function (l) { return { what: l.what, tax: l.tax, amt: l.amt }; }) };
+  call('api_add', PASS, p).then(function (r) {
+    YM = r.ym; var sel = document.getElementById('mon'); if (!Array.prototype.some.call(sel.options, function (o) { return o.value === YM; })) { var o = document.createElement('option'); o.value = YM; o.textContent = '20' + YM.slice(0, 2) + '年' + Number(YM.slice(2)) + '月'; sel.insertBefore(o, sel.firstChild); }
+    sel.value = YM;
+    var who = d.who; newDraft(); draft.who = who;
+    return loadMonth().then(function () { FLASH = '記録しました。履歴で確認できます'; goTab('hist'); });
+  }).catch(function (e) { b.disabled = false; b.textContent = '記録する'; setErr(e.message); });
+}
+
+/* ---------- 履歴 ---------- */
+function groups() {
+  var map = {}, order = [];
+  DATA.items.forEach(function (it) { if (!map[it.rid]) { map[it.rid] = []; order.push(it.rid); } map[it.rid].push(it); });
+  return order.map(function (rid) { return map[rid]; }).reverse();
+}
+function histHtml() {
+  var h = '<div class="filters"><select onchange="FILT.who=this.value;render()"><option value="">全員</option>' + opts(INIT.who, FILT.who) + '</select><input type="text" placeholder="店名・内容で探す" value="' + esc(FILT.q) + '" onchange="FILT.q=this.value;render()"></div>';
+  h += '<div style="display:flex;gap:16px;font-size:13px;margin-bottom:4px"><label><input type="checkbox" ' + (FILT.me ? 'checked' : '') + ' onchange="FILT.me=this.checked;render()"> 自分の分だけ</label><label><input type="checkbox" ' + (FILT.rb ? 'checked' : '') + ' onchange="FILT.rb=this.checked;render()"> 行ごとの残高</label></div>';
+  var n = 0;
+  groups().forEach(function (g) {
+    var f = g[0], isIn = f.inn !== '';
+    if (FILT.me && ME && f.who !== ME) return;
+    if (FILT.who && f.who !== FILT.who) return;
+    var hay = (f.shop + g.map(function (x) { return x.what; }).join('')).toLowerCase();
+    if (FILT.q && hay.indexOf(FILT.q.toLowerCase()) < 0) return;
+    n++;
+    if (EDIT && EDIT.rid === f.rid) { h += editHtml(); return; }
+    var tot = g.reduce(function (s, x) { return s + (Number(isIn ? x.inn : x.out) || 0); }, 0);
+    h += '<div class="item"><button class="thumb" onclick="showPhoto(\'' + f.rid + '\')" ' + (f.photo ? '' : 'disabled') + ' aria-label="写真">' + (isIn ? '¥' : (f.photo ? '▣' : '–')) + '</button><div class="grow">';
+    h += '<div class="between"><b>' + esc(f.day) + '日 ' + esc(isIn ? (g[0].what) : f.shop) + '</b><b class="' + (isIn ? 'in' : '') + '">' + (isIn ? '+' : '') + yen(tot) + '</b></div>';
+    if (!isIn) g.forEach(function (x) { h += '<div class="between muted"><span>' + esc(x.what) + (x.tax ? ' / ' + esc(x.tax) : '') + '</span>' + (g.length > 1 ? '<span>' + yen(x.out) + '</span>' : '') + '</div>'; });
+    h += '<div class="between" style="align-items:center;margin-top:6px"><span class="muted">' + esc(f.who) + (FILT.rb ? ' / 残高 ' + yen(g[g.length - 1].bal) : '') + '</span>';
+    if (!DATA.closed) {
+      if (CONFIRM_CANCEL === f.rid) h += '<span><button class="s d" onclick="doCancel(\'' + f.rid + '\')">取り消す</button> <button class="s" onclick="CONFIRM_CANCEL=null;render()">やめる</button></span>';
+      else h += '<span><button class="s" onclick="startEdit(\'' + f.rid + '\')">修正</button> <button class="s d" onclick="CONFIRM_CANCEL=\'' + f.rid + '\';render()">取消</button></span>';
+    }
+    h += '</div><div id="ph-' + f.rid + '">' + (OPENPHOTO[f.rid] ? '<img class="photo" src="' + OPENPHOTO[f.rid] + '">' : '') + '</div></div></div>';
+  });
+  if (!n) h += '<div class="center">該当する入力はありません</div>';
+  return h;
+}
+function showPhoto(rid) {
+  if (OPENPHOTO[rid]) { delete OPENPHOTO[rid]; return render(); }
+  var it = DATA.items.filter(function (x) { return x.rid === rid; })[0];
+  call('api_photo', PASS, it.photo).then(function (u) { OPENPHOTO[rid] = u; render(); }).catch(showErr);
+}
+function startEdit(rid) {
+  var g = DATA.items.filter(function (x) { return x.rid === rid; }), f = g[0], isIn = f.inn !== '';
+  EDIT = { rid: rid, isIn: isIn, day: f.day, shop: f.shop, lines: g.map(function (x) { return { id: x.id, what: x.what, other: '', tax: x.tax || '10%', amt: isIn ? x.inn : x.out }; }) };
+  FLASH = ''; render();
+}
+function editHtml() {
+  var e = EDIT, h = '<div class="card" style="border-color:#8c8a80"><div class="muted" style="margin-top:6px">修正中</div>';
+  h += lab('日(1〜31)') + '<input type="number" inputmode="numeric" value="' + esc(e.day) + '" oninput="EDIT.day=this.value">';
+  if (!e.isIn) h += lab('支払先') + '<input type="text" list="shops" value="' + esc(e.shop) + '" oninput="EDIT.shop=this.value">';
+  e.lines.forEach(function (l, i) { h += lineHtml(l, i, 'EDIT', e.lines.length > 1, !e.isIn); });
+  h += '<div class="err" id="err"></div><div class="row2"><button onclick="EDIT=null;render()">やめる</button><button class="p" onclick="saveEdit()">保存</button></div></div>';
+  return h;
+}
+function saveEdit() {
+  var e = EDIT;
+  for (var i = 0; i < e.lines.length; i++) if (!e.lines[i].what || e.lines[i].what === 'その他(自由入力)') return setErr('明細' + (i + 1) + 'の支払内容を入力してください');
+  call('api_saveReceipt', PASS, { ym: YM, rid: e.rid, day: e.day, shop: e.shop, editor: ME, lines: e.lines.map(function (l) { return { id: l.id, what: l.what, tax: l.tax, amt: l.amt }; }) })
+    .then(function () { EDIT = null; return loadMonth(); }).then(function () { FLASH = '修正しました。変更履歴に残しています'; render(); }).catch(function (er) { setErr(er.message); });
+}
+function doCancel(rid) {
+  call('api_cancel', PASS, YM, rid, ME).then(function () { CONFIRM_CANCEL = null; return loadMonth(); }).then(function () { FLASH = '取り消しました。残高に反映しています'; render(); }).catch(showErr);
+}
+
+/* ---------- 月次チェック ---------- */
+function chkHtml() {
+  var c = chk, h = '<div style="font-weight:600;margin:6px 0">手元の現金を数えて入力</div><div class="muted">帳簿の残高 ' + yen(c.book) + '</div>';
+  c.denoms.forEach(function (d, i) { h += '<div class="between" style="align-items:center;margin-top:6px"><span style="width:90px">' + d.toLocaleString() + '円</span><input type="number" inputmode="numeric" style="width:90px" value="' + (c.counts[i] || '') + '" placeholder="0" oninput="chk.counts[' + i + ']=Number(this.value)||0;updChk()"><span id="sub' + i + '" class="muted" style="width:90px;text-align:right"></span></div>'; });
+  h += '<div style="margin-top:12px">数えた合計 <b id="ctot"></b></div><div id="cdiff" style="font-weight:600;margin:4px 0"></div><div class="err" id="err"></div>';
+  if (c.closed) h += '<div class="muted">この月は締め済みです</div>';
+  else h += '<div class="row2"><button onclick="saveChk(false)">結果を保存</button><button class="p" onclick="saveChk(true)">保存して月を締める</button></div><div class="muted" style="margin-top:6px">締めると、その月の記録は修正できなくなります。</div>';
+  setTimeout(updChk, 0);
+  return h;
+}
+function updChk() {
+  var c = chk, t = 0;
+  c.denoms.forEach(function (d, i) { var s = d * (Number(c.counts[i]) || 0); t += s; var e = document.getElementById('sub' + i); if (e) e.textContent = yen(s); });
+  var el = document.getElementById('ctot'); if (el) el.textContent = yen(t);
+  var df = t - c.book, dEl = document.getElementById('cdiff');
+  if (dEl) { dEl.textContent = df === 0 ? '一致しています' : (df < 0 ? yen(-df) + ' 不足しています' : yen(df) + ' 多くなっています'); dEl.style.color = df === 0 ? '#1d6b33' : '#b3261e'; }
+}
+function saveChk(close) {
+  call('api_checkSave', PASS, YM, chk.counts, close, ME).then(function (r) {
+    FLASH = (close ? '月を締めました。' : '保存しました。') + (r.diff === 0 ? '帳簿と一致しています' : '差額は ' + yen(r.diff) + ' です');
+    if (close) { INIT.closed.push(YM); }
+    return loadMonth().then(function () { goTab('chk'); });
+  }).catch(function (e) { setErr(e.message); });
+}
+
+start();
+</script>
+</body>
+</html>
